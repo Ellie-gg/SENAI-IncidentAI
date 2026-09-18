@@ -17,19 +17,28 @@ def route_after_security(state: IncidentState) -> str:
     return "block" if state.get("security_violation", False) else "continue"
 
 
-def route_after_approval(state: IncidentState) -> str:
+def route_after_risk(state: IncidentState) -> str:
     """Condicional #2 + condição de parada do loop de retry.
+
+    Decidida logo após assess_risk (não mais em route_after_approval —
+    refinamento da Fase 7, ver docs/refinamento-prompt.md): não faz
+    sentido gastar uma chamada de LLM gerando recomendação para uma
+    análise que ainda vai ser refeita.
 
     `iteration_count < MAX_ITERATIONS` é a rede de segurança principal;
     `recursion_limit` no invoke (app/agent/graph.py) é a rede de segurança
     secundária caso esta condição tenha algum bug de wiring.
     """
     settings = get_settings()
-    if state.get("requires_human_approval", False):
-        return "needs_approval"
     if (
         state.get("needs_reanalysis", False)
         and state.get("iteration_count", 0) < settings.max_iterations
     ):
         return "retry"
-    return "auto"
+    return "recommend"
+
+
+def route_after_approval(state: IncidentState) -> str:
+    """Condicional #3 — approval_check já rodou depois de
+    generate_recommendation, com a ação REAL recomendada disponível."""
+    return "needs_approval" if state.get("requires_human_approval", False) else "auto"
