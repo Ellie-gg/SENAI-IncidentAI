@@ -1,0 +1,61 @@
+name: incidentai
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      LLM_MODEL: ${LLM_MODEL:-gemini-2.5-flash}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      MONITORING_BASE_URL: http://mock-monitoring:8081
+      MONITORING_ENABLED: "true"
+      TOOLS_TRANSPORT: ${TOOLS_TRANSPORT:-inprocess}
+      N8N_WEBHOOK_URL: ${N8N_WEBHOOK_URL:-}
+      NOTIFY_MIN_SEVERITY: ${NOTIFY_MIN_SEVERITY:-high}
+    volumes:
+      - incidentai-data:/app/data
+    depends_on:
+      mock-monitoring:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  mock-monitoring:
+    build:
+      context: .
+      dockerfile: mock_monitoring/Dockerfile
+    ports:
+      - "8081:8081"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8081/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  n8n:
+    image: n8nio/n8n:latest
+    ports:
+      - "5678:5678"
+    environment:
+      N8N_SECURE_COOKIE: "false"
+      WEBHOOK_URL: http://localhost:5678/
+    volumes:
+      - n8n-data:/home/node/.n8n
+      - ./n8n:/workflows:ro
+    profiles:
+      - low-code
+
+volumes:
+  incidentai-data:
+  n8n-data:

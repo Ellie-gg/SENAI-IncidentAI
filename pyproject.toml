@@ -1,0 +1,25 @@
+[project]
+name = "incidentai"
+version = "0.1.0"
+description = "IncidentAI — copiloto de SRE/DevOps com agente LangGraph"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = [".venv", "data", "n8n/.n8n"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "C4"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "mcp_server", "mock_monitoring"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "docker: marks tests that require docker compose (deselected by default)",
+]
+addopts = "-m 'not docker'"
