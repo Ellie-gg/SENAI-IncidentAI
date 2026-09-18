@@ -15,12 +15,16 @@ from fastapi import APIRouter, HTTPException, Request, status
 from app.agent.state import initial_state
 from app.config import get_settings
 from app.memory import db as memory_db
-from app.memory.incident_repository import save_audit_entry
+from app.memory.incident_repository import get_audit_trail, save_audit_entry
 from app.models.incident import ApprovalRequest, IncidentRequest
 from app.models.response import EvidenceBlock, IncidentResponse, RiskBlock
+from app.observability import audit as audit_module
+from app.observability import metrics as metrics_module
+from app.observability.logger import get_logger, log_execution
 from app.security.guardrails import redact_secrets
 
 router = APIRouter()
+logger = get_logger("incidentai.api")
 
 
 @router.get("/health", tags=["ops"])
@@ -92,8 +96,49 @@ async def analyze_incident(payload: IncidentRequest, request: Request) -> Incide
         "configurable": {"thread_id": incident_id},
         "recursion_limit": settings.recursion_limit,
     }
-    final_state = await graph.ainvoke(state, config=config)
+
+    logger.info(
+        "incident.received",
+        trace_id=trace_id,
+        incident_id=incident_id,
+        service=payload.service,
+        environment=payload.environment,
+    )
+    try:
+        final_state = await graph.ainvoke(state, config=config)
+    except Exception:
+        # Rede de segurança final: nenhum nó do grafo deveria propagar
+        # exceção (cada um trata e degrada), mas se algo inesperado
+        # acontecer, a API nunca devolve um 500 sem contexto — loga
+        # correlacionado por trace_id antes de responder.
+        logger.error("incident.analyze_failed", trace_id=trace_id, incident_id=incident_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Falha inesperada ao analisar o incidente (trace_id={trace_id}).",
+        ) from None
+
+    log_execution(incident_id=incident_id, trace_id=trace_id, state=final_state)
+    conn = memory_db.get_connection()
+    audit_module.record_execution_decisions(
+        conn, incident_id=incident_id, trace_id=trace_id, state=final_state
+    )
+
     return _state_to_response(final_state, incident_id=incident_id, trace_id=trace_id)
+
+
+@router.get("/incidents/{incident_id}/audit", tags=["incidents", "ops"])
+async def get_incident_audit_trail(incident_id: str) -> dict:
+    """Reconstrói as decisões de governança de um incidente — o segundo
+    sinal de observabilidade, correlacionado por incident_id/trace_id com
+    os logs estruturados emitidos em log_execution()."""
+    conn = memory_db.get_connection()
+    entries = get_audit_trail(conn, incident_id)
+    return {"incident_id": incident_id, "entries": entries}
+
+
+@router.get("/metrics", tags=["ops"])
+async def get_metrics() -> dict:
+    return metrics_module.get_registry().snapshot()
 
 
 @router.post("/incidents/{incident_id}/approve", tags=["incidents"])

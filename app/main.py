@@ -9,7 +9,6 @@ app/agent/checkpointer.py).
 
 from __future__ import annotations
 
-import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -20,19 +19,21 @@ from app.agent.graph import build_graph
 from app.api.routes import router
 from app.config import get_settings
 from app.memory import db as memory_db
+from app.observability.logger import configure_logging, get_logger
 from app.tools import core as tools_core
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("incidentai")
+logger = get_logger("incidentai")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
+    configure_logging(level=settings.log_level)
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     logger.info(
         "incidentai.startup",
-        extra={"environment": settings.environment, "llm_provider": settings.llm_provider},
+        environment=settings.environment,
+        llm_provider=settings.llm_provider,
     )
 
     async with checkpointer_cm(str(settings.checkpoints_db_path)) as checkpointer:

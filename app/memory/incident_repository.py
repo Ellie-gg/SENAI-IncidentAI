@@ -105,8 +105,11 @@ def save_audit_entry(
 
 
 def get_audit_trail(conn: sqlite3.Connection, incident_id: str) -> list[dict]:
+    # ORDER BY id (não created_at): id é monotônico garantido pelo
+    # AUTOINCREMENT; created_at poderia colidir entre duas escritas na
+    # mesma execução dependendo da resolução do relógio do sistema.
     rows = conn.execute(
-        "SELECT * FROM audit_log WHERE incident_id = ? ORDER BY created_at ASC", (incident_id,)
+        "SELECT * FROM audit_log WHERE incident_id = ? ORDER BY id ASC", (incident_id,)
     ).fetchall()
     return [dict(r) for r in rows]
 
