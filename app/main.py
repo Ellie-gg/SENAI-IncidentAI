@@ -19,6 +19,7 @@ from app.agent.checkpointer import checkpointer_cm
 from app.agent.graph import build_graph
 from app.api.routes import router
 from app.config import get_settings
+from app.memory import db as memory_db
 from app.tools import core as tools_core
 
 logging.basicConfig(level=logging.INFO)
@@ -36,13 +37,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     async with checkpointer_cm(str(settings.checkpoints_db_path)) as checkpointer:
         app.state.graph = build_graph(checkpointer=checkpointer)
+        # Abre (e aplica o schema idempotente de) data/incidents.db cedo,
+        # para falhar rápido no startup se FTS5 não estiver disponível em
+        # vez de na primeira análise de incidente.
+        memory_db.get_connection()
 
-        # Fase 5+: conexão SQLite de memória/RAG (memory/db.py) entra aqui,
-        # exposta via app.state.
         try:
             yield
         finally:
             await tools_core.aclose()
+            memory_db.close_connection()
 
     logger.info("incidentai.shutdown")
 

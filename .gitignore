@@ -19,8 +19,10 @@ coverage.xml
 .env.*
 !.env.example
 
-# Data (SQLite DBs, checkpoints) — never commit real data
+# Data (SQLite DBs, checkpoints, WAL/SHM sidecar files) — never commit real data
 data/*.db
+data/*.db-shm
+data/*.db-wal
 data/*.sqlite
 data/*.sqlite-*
 data/checkpoints/
