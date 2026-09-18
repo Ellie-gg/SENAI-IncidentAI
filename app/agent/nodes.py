@@ -19,6 +19,8 @@ from app.agent.prompts import build_analysis_prompt, build_recommendation_prompt
 from app.agent.state import IncidentState
 from app.config import get_settings
 from app.models.llm_io import AnalysisOut, RecommendationOut
+from app.risk.anomaly import classify_trend, failure_risk
+from app.risk.scoring import classify_severity, compute_risk_score
 from app.services.llm import default_actions_for_category, get_llm, structured_with_fallback
 from app.tools.registry import call_tool
 
@@ -184,43 +186,50 @@ async def search_incident_history(state: IncidentState) -> dict:
 
 
 # --------------------------------------------------------------------------
-# assess_risk — [STUB Fase 3, motor completo na Fase 6 / feature/risk-engine]
-# Versão simplificada da regra aditiva do PLAN.md §4, sem tendência/anomalia
-# (isso entra com app/risk/anomaly.py). Já é 100% determinística e não olha
-# nenhum campo do LLM além de `category` — a separação LLM-vs-regra que a
-# Fase 6 testa explicitamente já vale a partir daqui.
+# assess_risk — real (Fase 6 / feature/risk-engine)
+# 100% determinística: só lê environment, métricas de monitoramento e a
+# tendência calculada por app/risk/anomaly.py — nenhum campo do LLM
+# (category, probable_cause, confidence) entra aqui. É a separação
+# LLM-vs-regra que tests/unit/test_scoring.py testa explicitamente.
 # --------------------------------------------------------------------------
-
-
-def _stub_risk_score(state: IncidentState) -> int:
-    score = 0
-    if state.get("environment") == "production":
-        score += 2
-    status = (state.get("service_status") or {}).get("status")
-    if status == "down":
-        score += 3
-    return score
-
-
-def _stub_severity(score: int) -> str:
-    if score >= 6:
-        return "high"
-    if score >= 3:
-        return "medium"
-    return "low"
 
 
 async def assess_risk(state: IncidentState) -> dict:
     t0 = time.perf_counter()
-    score = _stub_risk_score(state)
-    severity = _stub_severity(score)
+    status_info = state.get("service_status") or {}
+    status = status_info.get("status", "unknown")
+    error_series = state.get("error_rate_series") or []
+    latency_series = state.get("latency_series") or []
+
+    current_error_rate = status_info.get("error_rate", error_series[-1] if error_series else 0.0)
+    current_latency = status_info.get(
+        "latency_p95_ms", latency_series[-1] if latency_series else 0.0
+    )
+
+    trend = classify_trend(error_series)
+    risk_prob = failure_risk(
+        trend=trend,
+        current_error_rate=current_error_rate,
+        latency_p95_ms=current_latency,
+        status=status,
+        environment=state["environment"],
+    )
+    score = compute_risk_score(
+        environment=state["environment"],
+        error_rate=current_error_rate,
+        latency_p95_ms=current_latency,
+        status=status,
+        trend_label=trend.label,
+    )
+    severity = classify_severity(score)
+
     return {
         "risk_score": score,
         "severity": severity,
-        "failure_risk": min(0.99, score / 10),
-        "trend": "stable",
-        "trend_confidence": 0.0,
-        **_trace("assess_risk", t0, "stub", risk_score=score, severity=severity),
+        "failure_risk": risk_prob,
+        "trend": trend.label,
+        "trend_confidence": trend.confidence,
+        **_trace("assess_risk", t0, "ok", risk_score=score, severity=severity, trend=trend.label),
     }
 
 
