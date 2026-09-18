@@ -1,19 +1,24 @@
 """Rotas HTTP da aplicação.
 
 /health (Fase 1) e /incidents/analyze (Fase 2: contrato validado; Fase 3:
-execução real do grafo LangGraph). /incidents/{id}/approve chega na Fase 7.
+execução real do grafo LangGraph). /incidents/{id}/approve (Fase 7):
+registra uma decisão humana para auditoria — a aplicação NUNCA executa a
+ação recomendada automaticamente, aprovar aqui é governança, não disparo.
 """
 
 from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Request, status
+from fastapi import APIRouter, HTTPException, Request, status
 
 from app.agent.state import initial_state
 from app.config import get_settings
-from app.models.incident import IncidentRequest
+from app.memory import db as memory_db
+from app.memory.incident_repository import save_audit_entry
+from app.models.incident import ApprovalRequest, IncidentRequest
 from app.models.response import EvidenceBlock, IncidentResponse, RiskBlock
+from app.security.guardrails import redact_secrets
 
 router = APIRouter()
 
@@ -42,9 +47,9 @@ def _state_to_response(state: dict, *, incident_id: str, trace_id: str) -> Incid
         trace_id=trace_id,
         category=state.get("category", "unknown"),
         severity=state.get("severity", "low"),
-        probable_cause=state.get("probable_cause", ""),
+        probable_cause=redact_secrets(state.get("probable_cause", "")),
         confidence=state.get("confidence", 0.0),
-        recommended_actions=state.get("recommended_actions", []),
+        recommended_actions=[redact_secrets(a) for a in state.get("recommended_actions", [])],
         risk=RiskBlock(
             score=state.get("risk_score", 0),
             failure_risk=state.get("failure_risk", 0.0),
@@ -89,3 +94,40 @@ async def analyze_incident(payload: IncidentRequest, request: Request) -> Incide
     }
     final_state = await graph.ainvoke(state, config=config)
     return _state_to_response(final_state, incident_id=incident_id, trace_id=trace_id)
+
+
+@router.post("/incidents/{incident_id}/approve", tags=["incidents"])
+async def approve_incident(incident_id: str, payload: ApprovalRequest, request: Request) -> dict:
+    graph = request.app.state.graph
+    config = {"configurable": {"thread_id": incident_id}}
+    snapshot = await graph.aget_state(config)
+    state = snapshot.values
+
+    if not state:
+        raise HTTPException(status_code=404, detail=f"Incidente '{incident_id}' não encontrado.")
+    if not state.get("requires_human_approval"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Incidente '{incident_id}' não está aguardando aprovação humana.",
+        )
+
+    conn = memory_db.get_connection()
+    save_audit_entry(
+        conn,
+        incident_id=incident_id,
+        trace_id=state.get("trace_id"),
+        decision=payload.decision,
+        actor=payload.actor,
+        reason=payload.reason,
+    )
+
+    return {
+        "incident_id": incident_id,
+        "decision": payload.decision,
+        "actor": payload.actor,
+        "action_class": state.get("action_class"),
+        "note": (
+            "Decisão registrada para auditoria. A aplicação nunca executa a ação "
+            "recomendada automaticamente — aprovação aqui é governança, não disparo."
+        ),
+    }

@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator
 
 Environment = Literal["production", "staging", "development"]
+ApprovalDecision = Literal["approved", "rejected"]
 
 MAX_LOGS = 200
 MAX_LOG_LINE_LENGTH = 2000
@@ -62,3 +63,13 @@ class IncidentRequest(BaseModel):
             ]
         }
     }
+
+
+class ApprovalRequest(BaseModel):
+    """Corpo de POST /incidents/{id}/approve — decisão humana registrada
+    para auditoria. A aplicação nunca executa a ação recomendada
+    automaticamente; aprovar aqui é governança, não disparo de ação."""
+
+    decision: ApprovalDecision
+    actor: str = Field(min_length=1, max_length=200, description="Quem decidiu (ex.: 'jane.doe')")
+    reason: str | None = Field(default=None, max_length=1000)

@@ -21,6 +21,7 @@ from app.config import get_settings
 from app.models.llm_io import AnalysisOut, RecommendationOut
 from app.risk.anomaly import classify_trend, failure_risk
 from app.risk.scoring import classify_severity, compute_risk_score
+from app.security import guardrails, policies
 from app.services.llm import default_actions_for_category, get_llm, structured_with_fallback
 from app.tools.registry import call_tool
 
@@ -54,16 +55,25 @@ async def validate_input(state: IncidentState) -> dict:
 
 
 # --------------------------------------------------------------------------
-# security_check — [STUB Fase 3, real na Fase 7 / feature/security]
+# security_check — real (Fase 7 / feature/security)
+# Único checkpoint que pode abortar o incidente inteiro antes de qualquer
+# chamada de LLM — cenário adversarial de prompt injection é bloqueado
+# aqui. Conteúdo recuperado via RAG é checado depois, em
+# search_incident_history (não pode abortar o fluxo àquela altura — é
+# filtrado em vez de bloqueado; ver comentário lá).
 # --------------------------------------------------------------------------
 
 
 async def security_check(state: IncidentState) -> dict:
     t0 = time.perf_counter()
+    reasons = guardrails.check_incident_input(
+        description=state["description"], logs=state.get("logs", [])
+    )
+    violation = bool(reasons)
     return {
-        "security_violation": False,
-        "security_reasons": [],
-        **_trace("security_check", t0, "ok"),
+        "security_violation": violation,
+        "security_reasons": reasons,
+        **_trace("security_check", t0, "blocked" if violation else "ok", reasons=reasons),
     }
 
 
@@ -155,11 +165,15 @@ async def check_service_status(state: IncidentState) -> dict:
 
 
 # --------------------------------------------------------------------------
-# search_incident_history — [STUB Fase 4, real na Fase 5 / feature/memory-rag]
-# Roda em paralelo com check_service_status. call_tool() já é a mesma porta
-# de entrada usada pela tool real (app/tools/core.py); a Fase 5 troca só o
-# corpo de tool_search_incident_history/tool_search_runbooks (FTS5, via
-# asyncio.to_thread para não bloquear o event loop) — este nó não muda.
+# search_incident_history — real (Fases 5 e 7 / feature/memory-rag +
+# feature/security)
+# Roda em paralelo com check_service_status. Conteúdo recuperado (RAG) é
+# filtrado contra a blocklist ANTES de poder entrar em qualquer prompt —
+# um runbook comprometido ou um incidente histórico com conteúdo malicioso
+# nunca chega ao LLM. Diferente de security_check (que aborta o incidente
+# inteiro), aqui o conteúdo suspeito é só removido: abortar o fluxo depois
+# do fan-out exigiria mais uma aresta condicional sem ganho real, já que
+# filtrar já neutraliza o risco (o dado nunca influencia a análise).
 # --------------------------------------------------------------------------
 
 
@@ -170,11 +184,26 @@ async def search_incident_history(state: IncidentState) -> dict:
             "search_incident_history", query=state["description"], service=state["service"]
         )
         runbooks = await call_tool("search_runbooks", query=state["description"])
+
+        safe_incidents, incident_reasons = guardrails.filter_safe_incidents(
+            history.get("similar_incidents", [])
+        )
+        safe_chunks, chunk_reasons = guardrails.filter_safe_runbook_chunks(
+            runbooks.get("runbook_chunks", [])
+        )
+        filtered_reasons = incident_reasons + chunk_reasons
+
         return {
-            "similar_incidents": history.get("similar_incidents", []),
-            "runbook_chunks": runbooks.get("runbook_chunks", []),
+            "similar_incidents": safe_incidents,
+            "runbook_chunks": safe_chunks,
+            "security_reasons": filtered_reasons,
             "tools_used": ["memory:search_incident_history", "memory:search_runbooks"],
-            **_trace("search_incident_history", t0, "stub"),
+            **_trace(
+                "search_incident_history",
+                t0,
+                "filtered" if filtered_reasons else "ok",
+                filtered=len(filtered_reasons),
+            ),
         }
     except Exception as exc:  # noqa: BLE001
         return {
@@ -234,33 +263,13 @@ async def assess_risk(state: IncidentState) -> dict:
 
 
 # --------------------------------------------------------------------------
-# approval_check — [STUB Fase 3, política completa na Fase 7 / feature/security]
-# --------------------------------------------------------------------------
-
-_MUTATING_KEYWORDS = ("restart", "delete", "drop", "kill", "rollback", "scale")
-
-
-async def approval_check(state: IncidentState) -> dict:
-    t0 = time.perf_counter()
-    text = " ".join(state.get("key_signals", []) + [state.get("probable_cause", "")]).lower()
-    looks_mutating = any(kw in text for kw in _MUTATING_KEYWORDS)
-    severity = state.get("severity", "low")
-    requires_approval = bool(
-        state.get("llm_parse_failed")
-        or (looks_mutating and state.get("environment") == "production")
-        or severity in ("high", "critical")
-        and state.get("environment") == "production"
-    )
-    action_class = "CHANGE" if looks_mutating else "RECOMMEND"
-    return {
-        "action_class": action_class,
-        "requires_human_approval": requires_approval,
-        **_trace("approval_check", t0, "stub", requires_human_approval=requires_approval),
-    }
-
-
-# --------------------------------------------------------------------------
 # generate_recommendation — real (LLM configurável)
+# Roda ANTES de approval_check agora (refinamento da Fase 7 — ver
+# docs/refinamento-prompt.md): approval_check precisa da ação REAL
+# recomendada para classificá-la (policies.classify_action), não de um
+# proxy baseado em key_signals/probable_cause. Efeito colateral bom: um
+# incidente pendente de aprovação humana já mostra o que o sistema
+# recomendaria, em vez de ficar sem nenhuma ação até ser aprovado.
 # --------------------------------------------------------------------------
 
 
@@ -298,6 +307,40 @@ async def generate_recommendation(state: IncidentState) -> dict:
         "tools_used": ["llm:recommend"],
         **_trace("generate_recommendation", t0, "ok"),
     }
+
+
+# --------------------------------------------------------------------------
+# approval_check — real (Fase 7 / feature/security)
+# Último gate antes do fim do grafo. `action_class` vem da ação REAL
+# recomendada (policies.classify_action) — DELETE nunca é auto-liberado;
+# CHANGE em produção exige aprovação; análise degradada
+# (llm_parse_failed) nunca é auto-acionada mesmo que a ação pareça segura.
+# --------------------------------------------------------------------------
+
+
+async def approval_check(state: IncidentState) -> dict:
+    t0 = time.perf_counter()
+    action_class = policies.classify_action(state.get("recommended_actions", []))
+    needs_approval = policies.requires_approval(
+        action_class=action_class,
+        environment=state["environment"],
+        severity=state.get("severity", "low"),
+        llm_parse_failed=bool(state.get("llm_parse_failed")),
+        security_violation=bool(state.get("security_violation")),
+    )
+    update: dict[str, Any] = {
+        "action_class": action_class,
+        "requires_human_approval": needs_approval,
+        **_trace(
+            "approval_check",
+            t0,
+            "needs_approval" if needs_approval else "auto",
+            action_class=action_class,
+        ),
+    }
+    if needs_approval:
+        update["terminal_reason"] = "pending_approval"
+    return update
 
 
 # --------------------------------------------------------------------------

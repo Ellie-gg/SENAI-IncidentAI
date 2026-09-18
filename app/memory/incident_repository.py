@@ -84,6 +84,33 @@ def save_event(
     conn.commit()
 
 
+def save_audit_entry(
+    conn: sqlite3.Connection,
+    *,
+    incident_id: str,
+    trace_id: str | None,
+    decision: str,
+    actor: str,
+    reason: str | None = None,
+) -> None:
+    """Grava uma decisão de governança (bloqueio, aprovação, rejeição,
+    fallback) na trilha de auditoria. Consumida como sinal de
+    observabilidade correlacionado na Fase 8."""
+    conn.execute(
+        """INSERT INTO audit_log (incident_id, trace_id, decision, actor, reason, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (incident_id, trace_id, decision, actor, reason, datetime.now(UTC).isoformat()),
+    )
+    conn.commit()
+
+
+def get_audit_trail(conn: sqlite3.Connection, incident_id: str) -> list[dict]:
+    rows = conn.execute(
+        "SELECT * FROM audit_log WHERE incident_id = ? ORDER BY created_at ASC", (incident_id,)
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def get_incident(conn: sqlite3.Connection, incident_id: str) -> dict | None:
     row = conn.execute("SELECT * FROM incidents WHERE incident_id = ?", (incident_id,)).fetchone()
     return dict(row) if row else None

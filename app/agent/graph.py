@@ -1,6 +1,7 @@
 """Monta e compila o grafo LangGraph.
 
-Topologia:
+Topologia (revisada na Fase 7 — ver docs/refinamento-prompt.md: o motivo
+de approval_check rodar depois de generate_recommendation, não antes):
 
     START -> validate_input -(invalid)-> finalize_blocked -> END
                   |(ok)
@@ -16,14 +17,19 @@ Topologia:
                   |                         depois que AMBOS terminarem
             assess_risk
                   |
-            approval_check
-                  |
       +-----------+------------------+
- (needs_approval)          (retry, iteration_count<MAX)      (auto)
-      |                             |                          |
-finalize_pending_approval   analyze_incident (loop)   generate_recommendation
-      |                                                          |
-     END                                                        END
+ (retry, iteration_count<MAX)     (recommend)
+      |                                 |
+analyze_incident (loop)      generate_recommendation
+                                         |
+                                  approval_check
+                                         |
+                          +--------------+---------------+
+                    (needs_approval)                   (auto)
+                          |                               |
+              finalize_pending_approval                  END
+                          |
+                         END
 
 Ver app/agent/state.py para as regras de reducer que tornam o fan-out/fan-in
 seguro (chaves escritas por >1 nó precisam de Annotated[..., reducer]).
@@ -49,9 +55,9 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None) -> CompiledStat
     g.add_node("check_service_status", nodes.check_service_status)
     g.add_node("search_incident_history", nodes.search_incident_history)
     g.add_node("assess_risk", nodes.assess_risk)
+    g.add_node("generate_recommendation", nodes.generate_recommendation)
     g.add_node("approval_check", nodes.approval_check)
     g.add_node("finalize_pending_approval", nodes.finalize_pending_approval)
-    g.add_node("generate_recommendation", nodes.generate_recommendation)
 
     g.add_edge(START, "validate_input")
     g.add_conditional_edges(
@@ -73,17 +79,17 @@ def build_graph(checkpointer: BaseCheckpointSaver | None = None) -> CompiledStat
     g.add_edge("check_service_status", "assess_risk")
     g.add_edge("search_incident_history", "assess_risk")
 
-    g.add_edge("assess_risk", "approval_check")
     g.add_conditional_edges(  # condicional #2 + parada do loop de retry
+        "assess_risk",
+        routing.route_after_risk,
+        {"retry": "analyze_incident", "recommend": "generate_recommendation"},
+    )
+    g.add_edge("generate_recommendation", "approval_check")
+    g.add_conditional_edges(  # condicional #3
         "approval_check",
         routing.route_after_approval,
-        {
-            "needs_approval": "finalize_pending_approval",
-            "auto": "generate_recommendation",
-            "retry": "analyze_incident",
-        },
+        {"needs_approval": "finalize_pending_approval", "auto": END},
     )
     g.add_edge("finalize_pending_approval", END)
-    g.add_edge("generate_recommendation", END)
 
     return g.compile(checkpointer=checkpointer)
