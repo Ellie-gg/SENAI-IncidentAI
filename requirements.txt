@@ -1,0 +1,35 @@
+# Web framework
+fastapi==0.141.1
+uvicorn[standard]==0.53.0
+starlette==1.6.0
+
+# Data / config
+pydantic==2.13.5
+pydantic-settings==2.15.0
+python-dotenv==1.2.3
+
+# Agent / LLM
+langgraph==1.2.11
+langgraph-checkpoint==4.2.0
+langgraph-checkpoint-sqlite==3.1.1
+aiosqlite==0.22.1
+langchain-core==1.6.3
+langchain-google-genai==4.4.0
+
+# MCP — pinned <2: mcp 2.x renamed FastMCP to MCPServer and broke
+# langchain-mcp-adapters 0.3.x (RequestContext import). Revisit when
+# langchain-mcp-adapters ships a mcp>=2 compatible release.
+mcp[cli]<2,>=1.28
+langchain-mcp-adapters==0.3.1
+
+# HTTP client (tool integration)
+httpx==0.28.1
+
+# Observability
+structlog==26.1.0
+
+# Dev / test
+pytest==9.1.1
+pytest-asyncio==1.4.0
+respx==0.23.1
+ruff==0.16.8
