@@ -12,7 +12,6 @@ implementações reais desta fase (usam o LLM configurável via
 
 from __future__ import annotations
 
-import asyncio
 import time
 from typing import Any
 
@@ -21,6 +20,7 @@ from app.agent.state import IncidentState
 from app.config import get_settings
 from app.models.llm_io import AnalysisOut, RecommendationOut
 from app.services.llm import default_actions_for_category, get_llm, structured_with_fallback
+from app.tools.registry import call_tool
 
 
 def _trace(node: str, t0: float, status: str, **extra: Any) -> dict:
@@ -121,57 +121,57 @@ async def analyze_incident(state: IncidentState) -> dict:
 
 
 # --------------------------------------------------------------------------
-# check_service_status — [STUB Fase 3, real na Fase 4 / feature/tool-integration]
+# check_service_status — real (Fase 4 / feature/tool-integration)
 # Roda em paralelo com search_incident_history (fan-out a partir de
-# analyze_incident). Precisa ser async e não-bloqueante — asyncio.sleep aqui
-# simula I/O de rede; a Fase 4 troca por uma chamada httpx real ao container
-# mock-monitoring, mantendo a mesma assinatura e o mesmo contrato de saída.
+# analyze_incident). call_tool() é async e não-bloqueante (httpx.AsyncClient
+# com timeout/retry/fallback em app/tools/monitoring_client.py).
 # --------------------------------------------------------------------------
 
 
 async def check_service_status(state: IncidentState) -> dict:
     t0 = time.perf_counter()
     try:
-        await asyncio.sleep(0.05)  # placeholder de I/O — substituído na Fase 4
-        status = {
-            "service": state["service"],
-            "status": "unknown",
-            "error_rate": 0.0,
-            "latency_p95_ms": 0.0,
-            "history": [],
-            "source": "fallback",
-        }
+        status = await call_tool(
+            "get_service_status", service=state["service"], environment=state["environment"]
+        )
+        history = status.get("history", [])
         return {
             "service_status": status,
-            "error_rate_series": [],
-            "latency_series": [],
+            "error_rate_series": [p["error_rate"] for p in history],
+            "latency_series": [p["latency_p95_ms"] for p in history],
             "tools_used": ["tool:check_service_status"],
-            **_trace("check_service_status", t0, "stub"),
+            **_trace("check_service_status", t0, status.get("source", "unknown")),
         }
     except Exception as exc:  # noqa: BLE001 — nó paralelo nunca propaga exceção
         return {
             "service_status": None,
+            "error_rate_series": [],
+            "latency_series": [],
             "errors": [{"node": "check_service_status", "error": str(exc)}],
             **_trace("check_service_status", t0, "error", error=str(exc)),
         }
 
 
 # --------------------------------------------------------------------------
-# search_incident_history — [STUB Fase 3, real na Fase 5 / feature/memory-rag]
-# Roda em paralelo com check_service_status. asyncio.sleep simula o custo de
-# I/O que a Fase 5 substitui por uma consulta FTS5 (sqlite, via
-# asyncio.to_thread para não bloquear o event loop).
+# search_incident_history — [STUB Fase 4, real na Fase 5 / feature/memory-rag]
+# Roda em paralelo com check_service_status. call_tool() já é a mesma porta
+# de entrada usada pela tool real (app/tools/core.py); a Fase 5 troca só o
+# corpo de tool_search_incident_history/tool_search_runbooks (FTS5, via
+# asyncio.to_thread para não bloquear o event loop) — este nó não muda.
 # --------------------------------------------------------------------------
 
 
 async def search_incident_history(state: IncidentState) -> dict:
     t0 = time.perf_counter()
     try:
-        await asyncio.sleep(0.05)  # placeholder de I/O — substituído na Fase 5
+        history = await call_tool(
+            "search_incident_history", query=state["description"], service=state["service"]
+        )
+        runbooks = await call_tool("search_runbooks", query=state["description"])
         return {
-            "similar_incidents": [],
-            "runbook_chunks": [],
-            "tools_used": ["memory:search_incident_history"],
+            "similar_incidents": history.get("similar_incidents", []),
+            "runbook_chunks": runbooks.get("runbook_chunks", []),
+            "tools_used": ["memory:search_incident_history", "memory:search_runbooks"],
             **_trace("search_incident_history", t0, "stub"),
         }
     except Exception as exc:  # noqa: BLE001

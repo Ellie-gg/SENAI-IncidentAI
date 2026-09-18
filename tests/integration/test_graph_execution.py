@@ -4,6 +4,7 @@ LLM externo (LLM_PROVIDER=mock via tests/conftest.py).
 
 from __future__ import annotations
 
+import asyncio
 import operator
 import time
 from typing import Annotated, TypedDict
@@ -106,25 +107,70 @@ async def test_max_iterations_caps_the_retry_loop():
     assert len(analyze_calls) <= 3
 
 
-async def test_parallel_branches_genuinely_overlap_in_wall_clock():
-    """A prova de que o fan-out é paralelo de verdade, não só topológico:
-    se check_service_status e search_incident_history rodassem em série, o
-    tempo total seria >= soma das duas durações. Rodando em paralelo, o
-    total fica bem abaixo da soma (perto do máximo das duas)."""
+async def test_check_service_status_and_search_history_both_survive_fanin():
+    """As duas branches paralelas realmente escrevem no state e sobrevivem
+    ao fan-in em assess_risk (a prova de tempo de parede fica isolada em
+    test_fanout_topology_runs_nodes_concurrently, abaixo — decorrelacionada
+    da duração real de check_service_status/search_incident_history, que
+    muda a cada fase conforme os stubs viram implementação real)."""
     graph, state, config = _run()
-    t0 = time.perf_counter()
     final = await graph.ainvoke(state, config=config)
+
+    trace_by_node = {n["node"]: n for n in final["node_trace"]}
+    assert "check_service_status" in trace_by_node
+    assert "search_incident_history" in trace_by_node
+    assert final.get("service_status") is not None
+
+
+# --------------------------------------------------------------------------
+# Prova de paralelismo real isolada num grafo sintético mínimo (mesmo padrão
+# do teste de regressão de reducer, abaixo): dois nós com sleep conhecido e
+# igual, fan-out/fan-in idêntico ao do grafo de produção. Isolar do grafo de
+# negócio evita que este teste fique flaky (ou pare de testar o que
+# deveria) conforme check_service_status/search_incident_history deixam de
+# ser stub — Fases 4 e 5 substituem os corpos, não a topologia.
+# --------------------------------------------------------------------------
+
+
+class _TimingState(TypedDict, total=False):
+    node_trace: Annotated[list[dict], operator.add]
+
+
+async def _slow_a(state: _TimingState) -> dict:
+    await asyncio.sleep(0.1)
+    return {"node_trace": [{"node": "a"}]}
+
+
+async def _slow_b(state: _TimingState) -> dict:
+    await asyncio.sleep(0.1)
+    return {"node_trace": [{"node": "b"}]}
+
+
+def _build_fanout_timing_graph():
+    g = StateGraph(_TimingState)
+    g.add_node("start", lambda state: {})
+    g.add_node("a", _slow_a)
+    g.add_node("b", _slow_b)
+    g.add_node("join", lambda state: {})
+    g.add_edge(START, "start")
+    g.add_edge("start", "a")
+    g.add_edge("start", "b")
+    g.add_edge("a", "join")
+    g.add_edge("b", "join")
+    g.add_edge("join", END)
+    return g.compile()
+
+
+async def test_fanout_topology_runs_nodes_concurrently():
+    graph = _build_fanout_timing_graph()
+    t0 = time.perf_counter()
+    final = await graph.ainvoke({})
     total_s = time.perf_counter() - t0
 
-    parallel_durations_ms = [
-        n["duration_ms"]
-        for n in final["node_trace"]
-        if n["node"] in ("check_service_status", "search_incident_history")
-    ]
-    assert len(parallel_durations_ms) == 2
-    sum_serial_ms = sum(parallel_durations_ms)
-    # margem generosa (2x o maior dos dois) para não ficar flaky em CI lento
-    assert total_s * 1000 < sum_serial_ms * 0.9 or total_s * 1000 < max(parallel_durations_ms) * 2
+    assert {n["node"] for n in final["node_trace"]} == {"a", "b"}
+    # serial seria >= 0.2s (0.1 + 0.1); paralelo fica perto de 0.1s — folga
+    # generosa (0.17s) para não ficar flaky em CI lento.
+    assert total_s < 0.17
 
 
 # --------------------------------------------------------------------------
