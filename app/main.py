@@ -19,6 +19,7 @@ from app.agent.checkpointer import checkpointer_cm
 from app.agent.graph import build_graph
 from app.api.routes import router
 from app.config import get_settings
+from app.tools import core as tools_core
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("incidentai")
@@ -36,9 +37,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     async with checkpointer_cm(str(settings.checkpoints_db_path)) as checkpointer:
         app.state.graph = build_graph(checkpointer=checkpointer)
 
-        # Fase 5+: httpx.AsyncClient (monitoring) e conexão SQLite de
-        # memória/RAG (memory/db.py) entram aqui, expostos via app.state.
-        yield
+        # Fase 5+: conexão SQLite de memória/RAG (memory/db.py) entra aqui,
+        # exposta via app.state.
+        try:
+            yield
+        finally:
+            await tools_core.aclose()
 
     logger.info("incidentai.shutdown")
 
