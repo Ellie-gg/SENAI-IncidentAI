@@ -1,0 +1,43 @@
+# Stack separada de propósito: n8n só é definido/interpolado quando este
+# arquivo é explicitamente incluído (`-f docker-compose.low-code.yml`).
+#
+# Isso é deliberado, não incidental: o Docker Compose interpola as
+# variáveis de ambiente de TODOS os serviços de um arquivo sempre que ele é
+# carregado — mesmo os de um profile inativo. Colocar `N8N_BASIC_AUTH_PASSWORD`
+# como obrigatória (`:?`) dentro de docker-compose.yml quebraria
+# `docker compose up app mock-monitoring` para qualquer pessoa que nunca
+# toque no n8n. Isolar o n8n neste arquivo permite exigir a senha de verdade
+# (fail-closed: sem senha, o container nem sobe) sem esse efeito colateral.
+#
+# Uso (mesmo project name "incidentai" do docker-compose.yml → mesma rede):
+#   docker compose -f docker-compose.yml -f docker-compose.low-code.yml \
+#     --profile low-code up -d
+name: incidentai
+
+services:
+  n8n:
+    image: n8nio/n8n:1.70.3
+    ports:
+      - "5678:5678"
+    environment:
+      # HTTP local (sem TLS) só é aceitável em dev; N8N_SECURE_COOKIE=false é
+      # exigido pelo próprio n8n para permitir cookie de sessão sem HTTPS.
+      # Em qualquer ambiente exposto publicamente, isso deve rodar atrás de TLS.
+      N8N_SECURE_COOKIE: "false"
+      WEBHOOK_URL: http://localhost:5678/
+      # UI protegida por basic auth. `:?` é seguro aqui (ver comentário acima):
+      # este arquivo só é lido quando alguém pede explicitamente o perfil
+      # low-code, então falhar sem senha definida é o comportamento certo
+      # (fail-closed) em vez de subir com autenticação vazia/efetivamente
+      # desligada (fail-open).
+      N8N_BASIC_AUTH_ACTIVE: "true"
+      N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER:-admin}
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD:?defina N8N_BASIC_AUTH_PASSWORD no .env antes de subir o perfil low-code}
+    volumes:
+      - n8n-data:/home/node/.n8n
+      - ./n8n:/workflows:ro
+    profiles:
+      - low-code
+
+volumes:
+  n8n-data:

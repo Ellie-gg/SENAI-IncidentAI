@@ -43,32 +43,5 @@ services:
       retries: 5
       start_period: 5s
 
-  n8n:
-    image: n8nio/n8n:1.70.3
-    ports:
-      - "5678:5678"
-    environment:
-      # HTTP local (sem TLS) só é aceitável em dev; N8N_SECURE_COOKIE=false é
-      # exigido pelo próprio n8n para permitir cookie de sessão sem HTTPS.
-      # Em qualquer ambiente exposto, isso deve rodar atrás de TLS.
-      N8N_SECURE_COOKIE: "false"
-      WEBHOOK_URL: http://localhost:5678/
-      # UI protegida por basic auth — credenciais vêm de .env (nunca do
-      # compose diretamente). Usar `:-` (default vazio) em vez de `:?`
-      # (obrigatório) é deliberado: interpolação do compose avalia TODOS os
-      # serviços, mesmo os de outro profile — `:?` aqui quebraria
-      # `docker compose up app mock-monitoring` para quem nunca toca no n8n.
-      # Definir N8N_BASIC_AUTH_PASSWORD no .env é obrigatório antes de subir
-      # o profile "low-code" (ver README / docs/evidencias fase 11).
-      N8N_BASIC_AUTH_ACTIVE: "true"
-      N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER:-admin}
-      N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD:-}
-    volumes:
-      - n8n-data:/home/node/.n8n
-      - ./n8n:/workflows:ro
-    profiles:
-      - low-code
-
 volumes:
   incidentai-data:
-  n8n-data:
