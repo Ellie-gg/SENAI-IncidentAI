@@ -1,9 +1,10 @@
 """Factory da aplicação FastAPI + ciclo de vida (lifespan).
 
-O lifespan mantém recursos de processo inteiro (cliente HTTP, checkpointer,
-grafo compilado, conexão de dados) — nunca recriados por request. Cada peça
-é ligada incrementalmente conforme as fases avançam (ver comentários),
-mantendo o app funcional (⁠`/health`⁠) desde a Fase 1.
+O lifespan mantém recursos de processo inteiro (checkpointer, grafo
+compilado) — nunca recriados por request. `AsyncSqliteSaver` em particular
+É um context manager: abri-lo por request reexecutaria `setup()` e fecharia
+a conexão por baixo do request seguinte (bug documentado em
+app/agent/checkpointer.py).
 """
 
 from __future__ import annotations
@@ -14,6 +15,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.agent.checkpointer import checkpointer_cm
+from app.agent.graph import build_graph
 from app.api.routes import router
 from app.config import get_settings
 
@@ -30,10 +33,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         extra={"environment": settings.environment, "llm_provider": settings.llm_provider},
     )
 
-    # Fase 2+: inicialização de httpx.AsyncClient (monitoring), banco SQLite
-    # (memory/db.py), checkpointer (agent/checkpointer.py) e grafo compilado
-    # (agent/graph.py) entram aqui, expostos via app.state.
-    yield
+    async with checkpointer_cm(str(settings.checkpoints_db_path)) as checkpointer:
+        app.state.graph = build_graph(checkpointer=checkpointer)
+
+        # Fase 5+: httpx.AsyncClient (monitoring) e conexão SQLite de
+        # memória/RAG (memory/db.py) entram aqui, expostos via app.state.
+        yield
 
     logger.info("incidentai.shutdown")
 
