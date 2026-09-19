@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IncidentAI — Como fica a aplicação rodando</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Arial, Helvetica, sans-serif; background: #f1f4f9; color: #1f2937; }
+  .topo { background: #111827; color: #fff; padding: 20px 28px; }
+  .topo h1 { margin: 0; font-size: 22px; }
+  .topo h1 span { color: #22c55e; }
+  .topo p { margin: 6px 0 0; color: #cbd5e1; font-size: 14px; }
+  .status { display: inline-block; margin-top: 10px; background: #052e16; color: #86efac; border: 1px solid #16a34a; font-size: 12px; padding: 4px 10px; border-radius: 20px; }
+  .passos { display: flex; gap: 12px; padding: 18px 28px 0; flex-wrap: wrap; }
+  .passo { flex: 1; min-width: 200px; background: #fff; border-radius: 12px; padding: 14px 16px; border: 1px solid #e5e7eb; }
+  .passo b { display: block; font-size: 13px; color: #2563eb; margin-bottom: 4px; }
+  .passo p { margin: 0; font-size: 14px; }
+  .grade { display: grid; grid-template-columns: 380px 1fr; gap: 16px; padding: 18px 28px 28px; }
+  @media (max-width: 900px) { .grade { grid-template-columns: 1fr; } }
+  .cartao { background: #fff; border-radius: 14px; border: 1px solid #e5e7eb; padding: 18px; }
+  .cartao h2 { margin: 0 0 12px; font-size: 16px; }
+  label { font-size: 12px; color: #6b7280; display: block; margin: 10px 0 4px; }
+  .campo, textarea { width: 100%; border: 1px solid #d1d5db; border-radius: 8px; padding: 9px 10px; font-size: 14px; background: #f9fafb; }
+  textarea { min-height: 70px; resize: vertical; font-family: monospace; }
+  .linha { display: flex; gap: 8px; }
+  .linha .campo { flex: 1; }
+  .botao { width: 100%; margin-top: 14px; background: #2563eb; color: #fff; border: 0; border-radius: 10px; padding: 12px; font-size: 15px; cursor: pointer; }
+  .etiquetas { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0 12px; }
+  .etiqueta { font-size: 12px; padding: 5px 10px; border-radius: 20px; font-weight: bold; }
+  .alta { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
+  .risco { background: #ffedd5; color: #9a3412; border: 1px solid #fdba74; }
+  .tendencia { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
+  .id { font-size: 12px; color: #6b7280; }
+  .causa { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; padding: 12px; margin: 10px 0; }
+  .barra-fundo { background: #e5e7eb; border-radius: 8px; height: 10px; overflow: hidden; }
+  .barra { background: #2563eb; height: 10px; width: 85%; border-radius: 8px; }
+  ol { margin: 8px 0; padding-left: 20px; font-size: 14px; }
+  .aprovacao { background: #fffbeb; border: 1px solid #fcd34d; border-radius: 10px; padding: 12px; margin-top: 12px; }
+  .aprovacao .botoes { display: flex; gap: 8px; margin-top: 10px; }
+  .aprovar { flex: 1; background: #16a34a; color: #fff; border: 0; border-radius: 8px; padding: 10px; cursor: pointer; }
+  .detalhes { flex: 1; background: #fff; color: #374151; border: 1px solid #d1d5db; border-radius: 8px; padding: 10px; cursor: pointer; }
+  .evidencias { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+  @media (max-width: 600px) { .evidencias { grid-template-columns: 1fr; } }
+  .ev { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px; padding: 10px; font-size: 13px; }
+  .ev b { display: block; font-size: 12px; color: #6b7280; margin-bottom: 4px; }
+  .linha-tempo { display: flex; align-items: center; gap: 8px; margin-top: 14px; font-size: 13px; color: #374151; flex-wrap: wrap; }
+  .bolinha { width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-size: 13px; font-weight: bold; }
+  .verde { background: #16a34a; } .azul { background: #2563eb; } .amarelo { background: #d97706; }
+  .rodape { text-align: center; color: #6b7280; font-size: 12px; padding: 0 28px 24px; }
+</style>
+</head>
+<body>
+
+<div class="topo">
+  <h1>IncidentAI <span>●</span> Copiloto de plantão</h1>
+  <p>Você cola os logs, a aplicação analisa e diz o que fazer — nada muda em produção sem você aprovar.</p>
+  <div class="status">● sistema no ar — payments-api sendo observado</div>
+</div>
+
+<div class="passos">
+  <div class="passo"><b>PASSO 1</b><p>Descreva o problema e cole os logs</p></div>
+  <div class="passo"><b>PASSO 2</b><p>Receba o diagnóstico em segundos</p></div>
+  <div class="passo"><b>PASSO 3</b><p>Aprove antes de qualquer ação sensível</p></div>
+</div>
+
+<div class="grade">
+  <!-- ESQUERDA -->
+  <div class="cartao">
+    <h2>Novo incidente</h2>
+    <div class="linha">
+      <div style="flex:1"><label>Serviço</label><div class="campo">payments-api</div></div>
+      <div style="flex:1"><label>Ambiente</label><div class="campo">production</div></div>
+    </div>
+    <label>O que está acontecendo?</label>
+    <div class="campo" style="min-height:44px">API apresentando erro de conexão com o banco</div>
+    <label>Logs</label>
+    <textarea readonly>ERROR database connection timeout
+ERROR connection pool exhausted
+WARN latency=2350ms</textarea>
+    <button class="botao">Analisar incidente</button>
+  </div>
+
+  <!-- DIREITA -->
+  <div class="cartao">
+    <div class="id">INC-91A02 · analisado agora · payments-api</div>
+    <h2>Diagnóstico pronto</h2>
+    <div class="etiquetas">
+      <span class="etiqueta alta">Severidade: Alta</span>
+      <span class="etiqueta risco">Risco: 8 / 10</span>
+      <span class="etiqueta tendencia">Tendência: piorando</span>
+    </div>
+
+    <div class="causa">
+      <b>Causa provável:</b> Conexões com o banco esgotadas (pool cheio)<br>
+      <span style="font-size:13px;color:#374151">Confiança: 85%</span>
+      <div class="barra-fundo" style="margin-top:6px"><div class="barra"></div></div>
+    </div>
+
+    <b>O que fazer agora</b>
+    <ol>
+      <li>Verificar se o banco está acessível</li>
+      <li>Olhar o uso do pool de conexões</li>
+      <li>Revisar o último deploy</li>
+    </ol>
+
+    <div class="aprovacao">
+      <b>Precisa da sua aprovação</b>
+      <div style="font-size:13px">Essa ação mexe em produção, então fica pausada até você liberar.</div>
+      <div class="botoes">
+        <button class="aprovar">Aprovar</button>
+        <button class="detalhes">Ver detalhes</button>
+      </div>
+    </div>
+
+    <div class="evidencias">
+      <div class="ev"><b>Estado do serviço</b>Degradado — erros crescendo</div>
+      <div class="ev"><b>Caso parecido</b>INC-00001 — mesmo sintoma mês passado</div>
+      <div class="ev"><b>Guia sugerido</b>Runbook: Pool de conexões</div>
+    </div>
+
+    <div class="linha-tempo">
+      <span class="bolinha verde">✓</span> Recebido
+      <span>→</span>
+      <span class="bolinha azul">✓</span> Analisado
+      <span>→</span>
+      <span class="bolinha amarelo">!</span> Aguardando você
+    </div>
+  </div>
+</div>
+
+<div class="rodape">Mockup visual simplificado — abra este arquivo no navegador. Dados de exemplo, nada aqui executa ação real.</div>
+
+</body>
+</html>
