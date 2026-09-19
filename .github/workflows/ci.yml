@@ -40,6 +40,20 @@ jobs:
           print(f'::notice::Python: {sys.version}')
           print(f'::notice::SQLite: {sqlite3.sqlite_version}')
           "
+      - name: pytest collection check
+        run: |
+          set +e
+          pytest --collect-only -q > collect.log 2>&1
+          code=$?
+          cat collect.log
+          if [ $code -ne 0 ]; then
+            grep -E "Error|error collecting" collect.log | head -n 20 | while IFS= read -r line; do
+              echo "::error::COLLECT: $line"
+            done
+          fi
+        env:
+          LLM_PROVIDER: mock
+          MONITORING_ENABLED: "false"
       - name: pytest
         id: pytest
         run: |
@@ -48,10 +62,9 @@ jobs:
           code=$?
           cat pytest_output.log
           if [ $code -ne 0 ]; then
-            tail -c 6000 pytest_output.log > pytest_tail.log
-            while IFS= read -r line; do
-              [ -n "$line" ] && echo "::error::$line"
-            done < pytest_tail.log
+            grep -E "^(FAILED|ERROR)|Error:|Exception:" pytest_output.log | head -n 20 | while IFS= read -r line; do
+              echo "::error::RUN: $line"
+            done
           fi
           exit $code
         env:
