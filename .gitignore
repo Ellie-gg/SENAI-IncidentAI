@@ -13,6 +13,8 @@ venv/
 htmlcov/
 .coverage
 coverage.xml
+pytest-results.xml
+ci_repro.log
 
 # Env / secrets
 .env
