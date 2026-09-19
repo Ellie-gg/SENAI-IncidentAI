@@ -29,7 +29,31 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
-      - run: pytest -q --junitxml=pytest-results.xml
+      - name: Environment diagnostics
+        run: |
+          python -c "
+          import sqlite3, sys
+          row = sqlite3.connect(':memory:').execute(
+              \"select 1 from pragma_compile_options where compile_options like 'ENABLE_FTS5'\"
+          ).fetchone()
+          print(f'::notice::FTS5 available: {bool(row)}')
+          print(f'::notice::Python: {sys.version}')
+          print(f'::notice::SQLite: {sqlite3.sqlite_version}')
+          "
+      - name: pytest
+        id: pytest
+        run: |
+          set +e
+          pytest -q --tb=short --junitxml=pytest-results.xml > pytest_output.log 2>&1
+          code=$?
+          cat pytest_output.log
+          if [ $code -ne 0 ]; then
+            tail -c 6000 pytest_output.log > pytest_tail.log
+            while IFS= read -r line; do
+              [ -n "$line" ] && echo "::error::$line"
+            done < pytest_tail.log
+          fi
+          exit $code
         env:
           LLM_PROVIDER: mock
           MONITORING_ENABLED: "false"
