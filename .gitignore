@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+coverage.xml
+pytest-results.xml
+ci_repro.log
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Data (SQLite DBs, checkpoints, WAL/SHM sidecar files) — never commit real data
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/*.sqlite
+data/*.sqlite-*
+data/checkpoints/
+!data/runbooks/
+!data/.gitkeep
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Docker
+*.log
+
+# n8n local state
+n8n/.n8n/
+
+# Evidence media (keep JSON/MD, ignore large binaries if any)
+docs/evidencias/*.mp4
