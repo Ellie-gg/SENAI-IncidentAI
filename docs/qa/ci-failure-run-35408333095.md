@@ -1,5 +1,12 @@
 # Análise de falha de CI — run #35408333095 (IA)
 
+> **Atualização**: a causa raiz REAL foi encontrada depois (2 runs
+> adicionais, ver `docs/qa/ci-failure-root-cause.md`) — não era
+> infraestrutura transitória como concluído abaixo, era `sys.path`. Este
+> documento fica como registro do processo de investigação (inclusive o
+> caminho errado), o outro tem o diagnóstico e fix corretos.
+
+
 > Gerado manualmente pelo agente de IA que conduziu esta implementação
 > (não pelo script `scripts/ai_log_analysis.py`, que também está pronto e
 > testado mecanicamente — ver nota no fim). Cobre 2 etapas do pipeline

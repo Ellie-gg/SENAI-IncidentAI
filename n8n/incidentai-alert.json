@@ -1,0 +1,138 @@
+{
+  "name": "IncidentAI - Alerta de Severidade",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "incidentai-alert",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "1a1a1a1a-0001-4000-8000-000000000001",
+      "name": "Webhook - Novo Incidente",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "incidentai-alert"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-severity-high-or-critical",
+              "leftValue": "={{ ['high', 'critical'].includes($json.body.severity) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "2b2b2b2b-0002-4000-8000-000000000002",
+      "name": "IF severity >= high",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "assign-message",
+              "name": "message",
+              "type": "string",
+              "value": "=🚨 [{{$json.body.severity | upper}}] Incidente {{$json.body.incident_id}} em {{$json.body.service}} ({{$json.body.environment}})\nCategoria: {{$json.body.category}}\nCausa provável: {{$json.body.probable_cause}}\nAprovação humana necessária: {{$json.body.requires_human_approval}}\ntrace_id: {{$json.body.trace_id}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "3c3c3c3c-0003-4000-8000-000000000003",
+      "name": "Formatar mensagem de alerta",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [680, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.ALERT_TARGET_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"content\": $json.message } }}",
+        "options": {}
+      },
+      "id": "4d4d4d4d-0004-4000-8000-000000000004",
+      "name": "Enviar alerta (Discord/Slack)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 200],
+      "notes": "Configure ALERT_TARGET_WEBHOOK_URL como variável de ambiente do n8n com a URL de um webhook de entrada do Discord/Slack/Teams. Sem essa variável configurada, este node falha — o que é visível no histórico de execuções do n8n (comportamento esperado em ambiente de demo sem canal real conectado)."
+    },
+    {
+      "parameters": {},
+      "id": "5e5e5e5e-0005-4000-8000-000000000005",
+      "name": "Severidade abaixo do limiar (sem alerta)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [680, 420]
+    }
+  ],
+  "connections": {
+    "Webhook - Novo Incidente": {
+      "main": [
+        [
+          {
+            "node": "IF severity >= high",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF severity >= high": {
+      "main": [
+        [
+          {
+            "node": "Formatar mensagem de alerta",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Severidade abaixo do limiar (sem alerta)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formatar mensagem de alerta": {
+      "main": [
+        [
+          {
+            "node": "Enviar alerta (Discord/Slack)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "incidentai-demo"
+  }
+}
