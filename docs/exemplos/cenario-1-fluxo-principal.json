@@ -1,0 +1,10 @@
+{
+  "service": "payments-api",
+  "environment": "production",
+  "description": "API presenting database connection errors",
+  "logs": [
+    "ERROR database connection timeout",
+    "ERROR connection pool exhausted",
+    "WARN latency=2350ms"
+  ]
+}
