@@ -19,6 +19,13 @@ known-first-party = ["app", "mcp_server", "mock_monitoring"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# Sem isso, "pytest" puro (diferente de "python -m pytest") não adiciona o
+# diretório do projeto ao sys.path, e todo "from app...."/"from scripts...."
+# quebra com ModuleNotFoundError — funcionava em dev só porque sempre
+# rodei via "python -m pytest" (que adiciona CWD automaticamente); o CI
+# roda "pytest" direto e expôs isso. Achado e reproduzido localmente
+# rodando .venv/Scripts/pytest.exe diretamente (ver commit da Fase 10/11).
+pythonpath = ["."]
 markers = [
     "docker: marks tests that require docker compose (deselected by default)",
 ]

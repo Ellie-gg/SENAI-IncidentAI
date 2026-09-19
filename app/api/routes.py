@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
 
 from app.agent.state import initial_state
 from app.config import get_settings
@@ -22,6 +22,7 @@ from app.observability import audit as audit_module
 from app.observability import metrics as metrics_module
 from app.observability.logger import get_logger, log_execution
 from app.security.guardrails import redact_secrets
+from app.services.notifier import notify_incident
 
 router = APIRouter()
 logger = get_logger("incidentai.api")
@@ -78,7 +79,9 @@ def _state_to_response(state: dict, *, incident_id: str, trace_id: str) -> Incid
 
 
 @router.post("/incidents/analyze", tags=["incidents"], status_code=status.HTTP_200_OK)
-async def analyze_incident(payload: IncidentRequest, request: Request) -> IncidentResponse:
+async def analyze_incident(
+    payload: IncidentRequest, request: Request, background_tasks: BackgroundTasks
+) -> IncidentResponse:
     settings = get_settings()
     incident_id = _new_incident_id()
     trace_id = uuid.uuid4().hex
@@ -121,6 +124,21 @@ async def analyze_incident(payload: IncidentRequest, request: Request) -> Incide
     conn = memory_db.get_connection()
     audit_module.record_execution_decisions(
         conn, incident_id=incident_id, trace_id=trace_id, state=final_state
+    )
+
+    # Notificação (n8n) roda em background — nunca atrasa nem quebra a
+    # resposta da análise, e só dispara acima do limiar de severidade
+    # configurado (NOTIFY_MIN_SEVERITY).
+    background_tasks.add_task(
+        notify_incident,
+        incident_id=incident_id,
+        trace_id=trace_id,
+        service=payload.service,
+        environment=payload.environment,
+        severity=final_state.get("severity", "low"),
+        category=final_state.get("category", "unknown"),
+        probable_cause=redact_secrets(final_state.get("probable_cause", "")),
+        requires_human_approval=final_state.get("requires_human_approval", False),
     )
 
     return _state_to_response(final_state, incident_id=incident_id, trace_id=trace_id)

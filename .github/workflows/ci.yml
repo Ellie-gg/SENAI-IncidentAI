@@ -29,41 +29,18 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
-      - name: Environment diagnostics
-        run: |
-          python -c "
-          import sqlite3, sys
-          row = sqlite3.connect(':memory:').execute(
-              \"select 1 from pragma_compile_options where compile_options like 'ENABLE_FTS5'\"
-          ).fetchone()
-          print(f'::notice::FTS5 available: {bool(row)}')
-          print(f'::notice::Python: {sys.version}')
-          print(f'::notice::SQLite: {sqlite3.sqlite_version}')
-          "
-      - name: pytest collection check
-        run: |
-          set +e
-          pytest --collect-only -q > collect.log 2>&1
-          code=$?
-          cat collect.log
-          if [ $code -ne 0 ]; then
-            grep -E "Error|error collecting" collect.log | head -n 20 | while IFS= read -r line; do
-              echo "::error::COLLECT: $line"
-            done
-          fi
-        env:
-          LLM_PROVIDER: mock
-          MONITORING_ENABLED: "false"
       - name: pytest
-        id: pytest
         run: |
           set +e
           pytest -q --tb=short --junitxml=pytest-results.xml > pytest_output.log 2>&1
           code=$?
           cat pytest_output.log
           if [ $code -ne 0 ]; then
+            # Anota as linhas de falha/erro diretamente no check do GitHub —
+            # evita depender de baixar o log bruto (exige permissão de admin
+            # no repositório) só para descobrir o que quebrou.
             grep -E "^(FAILED|ERROR)|Error:|Exception:" pytest_output.log | head -n 20 | while IFS= read -r line; do
-              echo "::error::RUN: $line"
+              echo "::error::$line"
             done
           fi
           exit $code
