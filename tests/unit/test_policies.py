@@ -105,6 +105,24 @@ def test_degraded_analysis_always_requires_approval():
     )
 
 
+def test_security_violation_takes_precedence_even_over_llm_parse_failed():
+    """Sugestão do code review de IA (docs/qa/code-review-fase7-security.md,
+    item 1): confirma explicitamente que security_violation tem precedência
+    mesmo quando a análise TAMBÉM falhou (llm_parse_failed) — ambas as
+    flags 'puxariam' para True isoladamente, mas o bloqueio já aconteceu
+    antes (finalize_blocked), então pedir aprovação não faz sentido."""
+    assert (
+        requires_approval(
+            action_class="DELETE",
+            environment="production",
+            severity="critical",
+            llm_parse_failed=True,
+            security_violation=True,
+        )
+        is False
+    )
+
+
 def test_security_violation_never_requires_approval_its_already_blocked():
     # já foi bloqueado antes (finalize_blocked) — não faz sentido pedir aprovação
     assert (

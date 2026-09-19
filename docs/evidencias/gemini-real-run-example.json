@@ -1,0 +1,40 @@
+{
+  "incident_id": "INC-1BD032",
+  "trace_id": "af199b9578e148e7882bd0e45f2aca86",
+  "category": "database_connectivity",
+  "severity": "low",
+  "probable_cause": "Exhaustion of database connection pool leading to timeouts, preventing the API from connecting to the database.",
+  "confidence": 0.95,
+  "recommended_actions": [
+    "Verificar os logs da payments-api e do banco de dados para mensagens como \"connection pool exhausted\" ou \"database connection timeout\" para confirmar a causa.",
+    "Monitorar o número de conexões ativas no pool do banco de dados e comparar com o 'max_size' configurado para identificar se o limite está sendo atingido.",
+    "Analisar o padrão de tráfego e carga na payments-api e no banco de dados para identificar picos incomuns que possam estar sobrecarregando o pool de conexões.",
+    "Avaliar a possibilidade de aumentar temporariamente o 'max_size' do pool de conexões, se a análise indicar que o limite atual é insuficiente para a carga atual.",
+    "Investigar se há jobs ou processos na payments-api que estão abrindo e fechando conexões de forma ineficiente, como sugerido pelo INC-00002 e o runbook de 'Connection Reset'."
+  ],
+  "risk": {
+    "score": 2,
+    "failure_risk": 0.091,
+    "trend": "stable",
+    "trend_confidence": 0.0
+  },
+  "action_class": "RECOMMEND",
+  "requires_human_approval": false,
+  "evidence": {
+    "similar_incidents": [
+      "INC-00001",
+      "INC-00002",
+      "INC-00007"
+    ],
+    "runbooks": [
+      "Postgres Runbook > Connection Pool > Exhaustion",
+      "Postgres Runbook > Connection Pool > Connection Reset",
+      "Postgres Runbook"
+    ],
+    "service_status": "unknown",
+    "monitoring_source": "fallback"
+  },
+  "security_violation": false,
+  "degraded": false,
+  "terminal_reason": "completed"
+}
